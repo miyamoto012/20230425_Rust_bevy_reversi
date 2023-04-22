@@ -39,11 +39,13 @@ fn main() {
         .add_startup_system(spawn_camera)
         .add_startup_system(spawn_square)
 
+        .add_system(input_click)
+
         .run();
 }
 
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum SquareState {
     BLACK,
     WHITE,
@@ -181,4 +183,25 @@ pub fn draw_grid(
         Vec3::new(0., half_win_height, 0.0),
         0.0,
     );
+}
+
+pub fn input_click (
+    board_state: ResMut<BoardState>,
+    mouse_button: Res<Input<MouseButton>>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+){
+    let window = window_query.get_single().unwrap();
+
+    if ! mouse_button.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    if let Some(position) = window.cursor_position() {
+        let x = (position.x / SQUARE_SIZE) as usize;
+        let y = (position.y / SQUARE_SIZE) as usize;
+
+        println!("position.x: {}", x );
+        println!("position.y: {}", y );
+        println!("position.y: {:?}", board_state.value[y][x]);
+    }
 }
