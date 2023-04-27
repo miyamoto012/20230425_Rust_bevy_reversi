@@ -53,7 +53,7 @@ fn main() {
         .add_startup_system(spawn_camera)
         .add_startup_system(spawn_square)
 
-        .add_system(input_click)
+        .add_system(check_click)
         .add_system(flip_colors)
         .add_system(update_board_display)
         .add_system(undo)
@@ -386,7 +386,7 @@ pub fn update_board_display (
     }
 }
 
-pub fn input_click (
+pub fn check_click (
     board: Res<Board>,
     mouse_button: Res<Input<MouseButton>>,
     window_query: Query<&Window, With<PrimaryWindow>>,
