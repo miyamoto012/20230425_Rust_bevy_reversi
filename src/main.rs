@@ -11,16 +11,28 @@ pub const GRID_Y_LENGTH: u8 = 10;
 pub const X_BOTTOM: f32 = -250.0;
 pub const Y_BOTTOM: f32 = -250.0;
 
-pub const COLOR_BLACK: Color = Color::rgb(0.85, 0.85, 0.85);
-pub const COLOR_WHITE: Color = Color::rgb(0.15, 0.15, 0.15);
+pub const COLOR_BLACK: Color = Color::rgb(0.15, 0.15, 0.15);
+pub const COLOR_WHITE: Color = Color::rgb(0.85, 0.85, 0.85);
 pub const COLOR_EMPTY: Color = Color::rgb(0.0, 0.5, 0.0);
 pub const COLOR_WALL: Color = Color::rgb(0.5, 0.5, 0.5);
 
 pub const SQUARE_SIZE: f32 = WINDOW_WIDTH / GRID_X_LENGTH as f32;
 
+pub const NONE_DIRECTION: u8 = 0b00000000;
+pub const UPPER: u8 = 0b00000001;
+pub const UPPER_LEFT: u8 = 0b00000010;
+pub const LEFT: u8 = 0b00000100;
+pub const LOWER_LEFT: u8 = 0b0001000;
+pub const LOWER: u8 = 0b00010000;
+pub const LOWER_RIGHT: u8 = 0b00100000;
+pub const RIGHT: u8 = 0b01000000;
+pub const UPPER_RIGHT: u8 = 0b10000000;
+
 fn main() {
     App::new()
-        .init_resource::<BoardState>()
+        .init_resource::<Board>()
+        .add_state::<TurnColorState>()
+        .add_event::<FlipEvent>()
 
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -40,197 +52,207 @@ fn main() {
         .add_startup_system(spawn_square)
 
         .add_system(input_click)
+        .add_system(flip_colors)
+        .add_system(update_board_display)
 
         .run();
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum SquareState {
+pub enum Square {
     Black,
     White,
     Empty,
     Wall,
 }
 
-impl SquareState {
+impl Square {
     pub fn color(&self)->Color{
         match self {
-            SquareState::Black => COLOR_BLACK,
-            SquareState::White => COLOR_WHITE,
-            SquareState::Empty => COLOR_EMPTY,
-            SquareState::Wall => COLOR_WALL,
+            Square::Black => COLOR_BLACK,
+            Square::White => COLOR_WHITE,
+            Square::Empty => COLOR_EMPTY,
+            Square::Wall => COLOR_WALL,
         }
     }
 
-    pub fn invert_colors (&self) -> SquareState {
+    pub fn invert_colors (&self) -> Square {
         match self {
-            SquareState::Black => SquareState::White,
-            SquareState::White => SquareState::Black,
-            SquareState::Empty => SquareState::Empty,
-            SquareState::Wall => SquareState::Wall,
+            Square::Black => Square::White,
+            Square::White => Square::Black,
+            Square::Empty => Square::Empty,
+            Square::Wall => Square::Wall,
         }
     }
 }
 
-pub const NONE_DIRECTION: u8 = 0b00000000;
-pub const UPPER: u8 = 0b00000001;
-pub const UPPER_LEFT: u8 = 0b00000010;
-pub const LEFT: u8 = 0b00000100;
-pub const LOWER_LEFT: u8 = 0b0000100;
-pub const LOWER: u8 = 0b00010000;
-pub const LOWER_RIGHT: u8 = 0b00100000;
-pub const RIGHT: u8 = 0b01000000;
-pub const UPPER_RIGHT: u8 = 0b10000000;
+
 
 #[derive(Resource)]
-pub struct BoardState {
-    value : [[SquareState; GRID_X_LENGTH as usize]; GRID_Y_LENGTH as usize],
+pub struct Board {
+    squares : [[Square; GRID_X_LENGTH as usize]; GRID_Y_LENGTH as usize],
 }
 
-impl Default for BoardState {
+impl Default for Board {
     fn default() -> Self {
         let mut state = [
-            [SquareState::Wall; GRID_X_LENGTH as usize],
-            [SquareState::Empty; GRID_X_LENGTH as usize],
-            [SquareState::Empty; GRID_X_LENGTH as usize],
-            [SquareState::Empty; GRID_X_LENGTH as usize],
-            [SquareState::Empty; GRID_X_LENGTH as usize],
-            [SquareState::Empty; GRID_X_LENGTH as usize],
-            [SquareState::Empty; GRID_X_LENGTH as usize],
-            [SquareState::Empty; GRID_X_LENGTH as usize],
-            [SquareState::Empty; GRID_X_LENGTH as usize],
-            [SquareState::Wall; GRID_X_LENGTH as usize],
+            [Square::Wall; GRID_X_LENGTH as usize],
+            [Square::Empty; GRID_X_LENGTH as usize],
+            [Square::Empty; GRID_X_LENGTH as usize],
+            [Square::Empty; GRID_X_LENGTH as usize],
+            [Square::Empty; GRID_X_LENGTH as usize],
+            [Square::Empty; GRID_X_LENGTH as usize],
+            [Square::Empty; GRID_X_LENGTH as usize],
+            [Square::Empty; GRID_X_LENGTH as usize],
+            [Square::Empty; GRID_X_LENGTH as usize],
+            [Square::Wall; GRID_X_LENGTH as usize],
         ];
 
-        state[4][4] = SquareState::Black;
-        state[5][5] = SquareState::Black;
-        state[4][5] = SquareState::White;
-        state[5][4] = SquareState::White;
+        state[4][4] = Square::Black;
+        state[5][5] = Square::Black;
+        state[4][5] = Square::White;
+        state[5][4] = Square::White;
 
         for i_y in 1..=8 {
             println!("i_y: {}", i_y);
-            state[i_y][0] = SquareState::Wall;
-            state[i_y][9] = SquareState::Wall;
+            state[i_y][0] = Square::Wall;
+            state[i_y][9] = Square::Wall;
         }
 
-        BoardState {
-            value : state
+        Board {
+            squares : state
         }
     }
 }
 
-impl BoardState {
-    fn check_mobility(&self, y: usize, x: usize, piece: SquareState) -> u8{
+impl Board {
+    pub fn check_mobility(&self, y: usize, x: usize, piece: Square) -> u8{
 
-        let selected_square = self.value[y][x];
+        let selected_square = self.squares[y][x];
 
-        if selected_square != SquareState::Empty {
+        if selected_square != Square::Empty {
             return NONE_DIRECTION;
         }
 
-        if piece != SquareState::Black && piece != SquareState::White {
+        if piece != Square::Black && piece != Square::White {
             panic!();
         }
 
         let mut direction = NONE_DIRECTION;
 
         //マスの上をチェック
-        if self.value[y+1][x] == piece.invert_colors() {
+        if self.squares[y+1][x] == piece.invert_colors() {
             let mut i_y = y + 2;
-            while self.value[i_y][x] == piece.invert_colors() {
+            while self.squares[i_y][x] == piece.invert_colors() {
                 i_y += 1;
             }
-            if self.value[i_y][x] == piece {
+            if self.squares[i_y][x] == piece {
                 direction |= UPPER;
             }
         }
 
         //マスの右上をチェック
-        if self.value[y+1][x+1] == piece.invert_colors() {
+        if self.squares[y+1][x+1] == piece.invert_colors() {
             let mut i_y = y + 2;
             let mut i_x = x + 2;
-            while self.value[i_y][i_x] == piece.invert_colors() {
+            while self.squares[i_y][i_x] == piece.invert_colors() {
                 i_y += 1;
                 i_x += 1;
             }
-            if self.value[i_y][i_x] == piece {
+            if self.squares[i_y][i_x] == piece {
                 direction |= UPPER_RIGHT;
             }
         }
 
         //マスの右をチェック
-        if self.value[y][x+1] == piece.invert_colors() {
+        if self.squares[y][x+1] == piece.invert_colors() {
             let mut i_x = x + 2;
-            while self.value[y][i_x] == piece.invert_colors() {
+            while self.squares[y][i_x] == piece.invert_colors() {
                 i_x += 1;
             }
-            if self.value[y][i_x] == piece {
+            if self.squares[y][i_x] == piece {
                 direction |= RIGHT;
             }
         }
 
         //マスの右下をチェック
-        if self.value[y-1][x+1] == piece.invert_colors() {
+        if self.squares[y-1][x+1] == piece.invert_colors() {
             let mut i_y = y - 2;
             let mut i_x = x + 2;
-            while self.value[i_y][i_x] == piece.invert_colors() {
+            while self.squares[i_y][i_x] == piece.invert_colors() {
                 i_y -= 1;
                 i_x += 1;
             }
-            if self.value[i_y][i_x] == piece {
+            if self.squares[i_y][i_x] == piece {
                 direction |= LOWER_RIGHT;
             }
         }
 
         //マスの下をチェック
-        if self.value[y-1][x] == piece.invert_colors() {
+        if self.squares[y-1][x] == piece.invert_colors() {
             let mut i_y = y - 2;
-            while self.value[i_y][x] == piece.invert_colors() {
+            while self.squares[i_y][x] == piece.invert_colors() {
                 i_y -= 1;
             }
-            if self.value[i_y][x] == piece {
+            if self.squares[i_y][x] == piece {
                 direction |= LOWER;
             }
         }
 
         //マスの左下をチェック
-        if self.value[y-1][x-1] == piece.invert_colors() {
+        if self.squares[y-1][x-1] == piece.invert_colors() {
             let mut i_y = y - 2;
             let mut i_x = x - 2;
-            while self.value[i_y][i_x] == piece.invert_colors() {
+            while self.squares[i_y][i_x] == piece.invert_colors() {
                 i_y -= 1;
                 i_x -= 1;
             }
-            if self.value[i_y][i_x] == piece {
+            if self.squares[i_y][i_x] == piece {
                 direction |= LOWER_LEFT;
             }
         }
 
         //マスの左をチェック
-        if self.value[y][x-1] == piece.invert_colors() {
+        if self.squares[y][x-1] == piece.invert_colors() {
             let mut i_x = x - 2;
-            while self.value[y][i_x] == piece.invert_colors() {
+            while self.squares[y][i_x] == piece.invert_colors() {
                 i_x -= 1;
             }
-            if self.value[y][i_x] == piece {
+            if self.squares[y][i_x] == piece {
                 direction |= LEFT;
             }
         }
 
         //マスの左上をチェック
-        if self.value[y+1][x-1] == piece.invert_colors() {
+        if self.squares[y+1][x-1] == piece.invert_colors() {
             let mut i_y = y + 2;
             let mut i_x = x - 2;
-            while self.value[i_y][i_x] == piece.invert_colors() {
+            while self.squares[i_y][i_x] == piece.invert_colors() {
                 i_y += 1;
                 i_x -= 1;
             }
-            if self.value[i_y][i_x] == piece {
+            if self.squares[i_y][i_x] == piece {
                 direction |= UPPER_LEFT;
             }
         }
 
         return direction;
+    }
+}
+
+#[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
+pub enum TurnColorState {
+    #[default]
+    Black,
+    White,
+}
+
+impl TurnColorState {
+    pub fn put_square (&self) -> Square {
+        match self {
+            TurnColorState::Black => Square::Black,
+            TurnColorState::White => Square::White,
+        }
     }
 }
 
@@ -240,13 +262,19 @@ pub struct Position {
     y: u8,
 }
 
+pub struct FlipEvent {
+    x: usize,
+    y: usize,
+    direction: u8,
+}
+
 pub fn spawn_camera(mut commands: Commands){
     commands.spawn(Camera2dBundle::default());
 }
 
 pub fn spawn_square(
     mut commands: Commands,
-    board_state: Res<BoardState>
+    board: Res<Board>,
 ){
     for i_y in 0..GRID_Y_LENGTH {
         for i_x in 0..GRID_X_LENGTH {
@@ -255,7 +283,7 @@ pub fn spawn_square(
             commands.spawn((
                 SpriteBundle {
                     sprite: Sprite {
-                        color: board_state.value[i_y as usize][i_x as usize].color(),
+                        color: board.squares[i_y as usize][i_x as usize].color(),
                         ..default()
                     },
                     transform: Transform {
@@ -275,7 +303,7 @@ pub fn spawn_square(
 
     fn position_translation(position: Position)->Vec3{
         let x: f32 = position.x as f32 * SQUARE_SIZE + SQUARE_SIZE/2.0 + X_BOTTOM;
-        let y: f32 = (GRID_Y_LENGTH - position.y - 1) as f32 * SQUARE_SIZE + SQUARE_SIZE/2.0 + Y_BOTTOM;
+        let y: f32 = position.y as f32 * SQUARE_SIZE + SQUARE_SIZE/2.0 + Y_BOTTOM;
 
         return Vec3::new(x, y, 0.0);
     }
@@ -318,10 +346,24 @@ pub fn draw_grid(
     );
 }
 
+pub fn update_board_display (
+    board: Res<Board>,
+    mut square_query: Query<(&mut Sprite, &Position)>,
+){
+    for (mut sprite, position) in square_query.iter_mut() {
+        let x = position.x as usize;
+        let y = position.y as usize;
+
+        sprite.color = board.squares[y][x].color();
+    }
+}
+
 pub fn input_click (
-    board_state: ResMut<BoardState>,
+    board: Res<Board>,
     mouse_button: Res<Input<MouseButton>>,
     window_query: Query<&Window, With<PrimaryWindow>>,
+    mut flip_event_writer: EventWriter<FlipEvent>,
+    turn_color_state: Res<State<TurnColorState>>,
 ){
     let window = window_query.get_single().unwrap();
 
@@ -333,9 +375,113 @@ pub fn input_click (
         let x = (position.x / SQUARE_SIZE) as usize;
         let y = (position.y / SQUARE_SIZE) as usize;
 
-        println!("position.x: {}", x );
-        println!("position.y: {}", y );
-        println!("state: {:?}", board_state.value[y][x]);
-        println!("stararer: {:08b}", board_state.check_mobility(y, x, SquareState::White));
+        let direction = board.check_mobility(
+            y, x, turn_color_state.0.put_square());
+
+        if direction != NONE_DIRECTION {
+            flip_event_writer.send(FlipEvent { x: x, y: y, direction: direction})
+        }
+    }
+}
+
+pub fn flip_colors (
+    mut board: ResMut<Board>,
+    mut flip_event_reader: EventReader<FlipEvent>,
+    mut turn_color_state: ResMut<State<TurnColorState>>,
+){
+    for flip_event in flip_event_reader.iter() {
+        let x = flip_event.x;
+        let y = flip_event.y;
+        let direction = flip_event.direction;
+
+        let put_square = turn_color_state.0.put_square();
+        board.squares[y][x] = put_square;
+
+        if (direction & UPPER) != NONE_DIRECTION {
+            let mut i_y = y + 1;
+
+            while board.squares[i_y][x] != put_square {
+                board.squares[i_y][x] = put_square;
+                i_y += 1;
+            }
+        }
+
+        if (direction & UPPER_RIGHT) != NONE_DIRECTION {
+            let mut i_y = y + 1;
+            let mut i_x = x + 1;
+
+            while board.squares[i_y][i_x] != put_square {
+                board.squares[i_y][i_x] = put_square;
+                i_y += 1;
+                i_x += 1;
+            }
+        }
+
+        if (direction & RIGHT) != NONE_DIRECTION {
+            let mut i_x = x + 1;
+
+            while board.squares[y][i_x] != put_square {
+                board.squares[y][i_x] = put_square;
+                i_x += 1;
+            }
+        }
+
+        if (direction & LOWER_RIGHT) != NONE_DIRECTION {
+            let mut i_y = y - 1;
+            let mut i_x = x + 1;
+
+            while board.squares[i_y][i_x] != put_square {
+                board.squares[i_y][i_x] = put_square;
+                i_y -= 1;
+                i_x += 1;
+            }
+        }
+
+        if (direction & LOWER) != NONE_DIRECTION {
+            let mut i_y = y - 1;
+
+            while board.squares[i_y][x] != put_square {
+                board.squares[i_y][x] = put_square;
+                i_y -= 1;
+            }
+        }
+
+        if (direction & LOWER_LEFT) != NONE_DIRECTION {
+            let mut i_y = y - 1;
+            let mut i_x = x - 1;
+
+            while board.squares[i_y][i_x] != put_square {
+                board.squares[i_y][i_x] = put_square;
+                i_y -= 1;
+                i_x -= 1;
+            }
+        }
+
+        if (direction & LEFT) != NONE_DIRECTION {
+            let mut i_x = x - 1;
+
+            while board.squares[y][i_x] != put_square {
+                board.squares[y][i_x] = put_square;
+                i_x -= 1;
+            }
+        }
+
+        if (direction & UPPER_LEFT) != NONE_DIRECTION {
+            let mut i_y = y + 1;
+            let mut i_x = x - 1;
+
+            while board.squares[i_y][i_x] != put_square {
+                board.squares[i_y][i_x] = put_square;
+                i_y += 1;
+                i_x -= 1;
+            }
+        }
+
+        turn_color_state.0 = match turn_color_state.0 {
+            TurnColorState::Black => TurnColorState::White,
+            TurnColorState::White => TurnColorState::Black,
+        };
+
+        println!("flip {},{},{:?}", x, y, put_square);
     }
 }
