@@ -31,6 +31,8 @@ pub const UPPER_RIGHT: u8 = 0b10000000;
 fn main() {
     App::new()
         .init_resource::<Board>()
+        .init_resource::<Turns>()
+        .init_resource::<UpdateLog>()
         .add_state::<TurnColorState>()
         .add_event::<FlipEvent>()
 
@@ -54,6 +56,7 @@ fn main() {
         .add_system(input_click)
         .add_system(flip_colors)
         .add_system(update_board_display)
+        .add_system(undo)
 
         .run();
 }
@@ -86,8 +89,6 @@ impl Square {
     }
 }
 
-
-
 #[derive(Resource)]
 pub struct Board {
     squares : [[Square; GRID_X_LENGTH as usize]; GRID_Y_LENGTH as usize],
@@ -114,7 +115,6 @@ impl Default for Board {
         state[5][4] = Square::White;
 
         for i_y in 1..=8 {
-            println!("i_y: {}", i_y);
             state[i_y][0] = Square::Wall;
             state[i_y][9] = Square::Wall;
         }
@@ -247,6 +247,34 @@ pub enum TurnColorState {
     White,
 }
 
+#[derive(Resource)]
+pub struct Turns {
+    count: u8
+}
+
+impl Default for Turns {
+    fn default() -> Self {
+        Turns {
+            count: 0
+        }
+    }
+}
+
+#[derive(Resource, Debug)]
+pub struct UpdateLog {
+    put: Vec<Position>,
+    flip: Vec<Vec<Position>>
+}
+
+impl Default for UpdateLog {
+    fn default() -> Self {
+        UpdateLog{
+            put: Vec::new(),
+            flip: Vec::new(),
+        }
+    }
+}
+
 impl TurnColorState {
     pub fn put_square (&self) -> Square {
         match self {
@@ -256,7 +284,7 @@ impl TurnColorState {
     }
 }
 
-#[derive(Component, Copy, Clone)]
+#[derive(Component, Copy, Clone, Debug)]
 pub struct Position {
     x: u8,
     y: u8,
@@ -388,6 +416,8 @@ pub fn flip_colors (
     mut board: ResMut<Board>,
     mut flip_event_reader: EventReader<FlipEvent>,
     mut turn_color_state: ResMut<State<TurnColorState>>,
+    mut update_log: ResMut<UpdateLog>,
+    mut turns: ResMut<Turns>,
 ){
     for flip_event in flip_event_reader.iter() {
         let x = flip_event.x;
@@ -397,13 +427,21 @@ pub fn flip_colors (
         let put_square = turn_color_state.0.put_square();
         board.squares[y][x] = put_square;
 
+        update_log.put.push(Position { x: x as u8, y: y as u8 });
+        update_log.flip.push(Vec::new());
+
         if (direction & UPPER) != NONE_DIRECTION {
             let mut i_y = y + 1;
 
             while board.squares[i_y][x] != put_square {
                 board.squares[i_y][x] = put_square;
+
+                update_log.flip[turns.count as usize].push(
+                    Position { x: x as u8, y: i_y as u8 });
+
                 i_y += 1;
             }
+
         }
 
         if (direction & UPPER_RIGHT) != NONE_DIRECTION {
@@ -412,9 +450,14 @@ pub fn flip_colors (
 
             while board.squares[i_y][i_x] != put_square {
                 board.squares[i_y][i_x] = put_square;
+
+                update_log.flip[turns.count as usize].push(
+                    Position { x: i_x as u8, y: i_y as u8 });
+
                 i_y += 1;
                 i_x += 1;
             }
+
         }
 
         if (direction & RIGHT) != NONE_DIRECTION {
@@ -422,8 +465,13 @@ pub fn flip_colors (
 
             while board.squares[y][i_x] != put_square {
                 board.squares[y][i_x] = put_square;
+
+                update_log.flip[turns.count as usize].push(
+                    Position { x: i_x as u8, y: y as u8 });
+
                 i_x += 1;
             }
+
         }
 
         if (direction & LOWER_RIGHT) != NONE_DIRECTION {
@@ -432,6 +480,10 @@ pub fn flip_colors (
 
             while board.squares[i_y][i_x] != put_square {
                 board.squares[i_y][i_x] = put_square;
+
+                update_log.flip[turns.count as usize].push(
+                    Position { x: i_x as u8, y: i_y as u8 });
+
                 i_y -= 1;
                 i_x += 1;
             }
@@ -442,6 +494,10 @@ pub fn flip_colors (
 
             while board.squares[i_y][x] != put_square {
                 board.squares[i_y][x] = put_square;
+
+                update_log.flip[turns.count as usize].push(
+                    Position { x: x as u8, y: i_y as u8 });
+
                 i_y -= 1;
             }
         }
@@ -452,6 +508,10 @@ pub fn flip_colors (
 
             while board.squares[i_y][i_x] != put_square {
                 board.squares[i_y][i_x] = put_square;
+
+                update_log.flip[turns.count as usize].push(
+                    Position { x: i_x as u8, y: i_y as u8 });
+
                 i_y -= 1;
                 i_x -= 1;
             }
@@ -462,6 +522,10 @@ pub fn flip_colors (
 
             while board.squares[y][i_x] != put_square {
                 board.squares[y][i_x] = put_square;
+
+                update_log.flip[turns.count as usize].push(
+                    Position { x: i_x as u8, y: y as u8 });
+
                 i_x -= 1;
             }
         }
@@ -472,6 +536,10 @@ pub fn flip_colors (
 
             while board.squares[i_y][i_x] != put_square {
                 board.squares[i_y][i_x] = put_square;
+
+                update_log.flip[turns.count as usize].push(
+                    Position { x: i_x as u8, y: i_y as u8 });
+
                 i_y += 1;
                 i_x -= 1;
             }
@@ -482,6 +550,44 @@ pub fn flip_colors (
             TurnColorState::White => TurnColorState::Black,
         };
 
-        println!("flip {},{},{:?}", x, y, put_square);
+        turns.count += 1;
+        println!("turn {:?}", turn_color_state.0);
     }
+}
+
+pub fn undo (
+    keyboard_input: Res<Input<KeyCode>>,
+    mut board: ResMut<Board>,
+    mut update_log: ResMut<UpdateLog>,
+    mut turns: ResMut<Turns>,
+    mut turn_color_state: ResMut<State<TurnColorState>>,
+){
+    if ! keyboard_input.just_pressed(KeyCode::B){
+        return;
+    }
+
+    if turns.count == 0 {
+        return;
+    }
+
+    turns.count -= 1;
+
+    let put_positon = update_log.put[turns.count as usize];
+
+    board.squares[put_positon.y as usize][put_positon.x as usize] = Square::Empty;
+
+    for flip_position in update_log.flip[turns.count as usize].iter(){
+        board.squares[flip_position.y as usize][flip_position.x as usize] =
+            board.squares[flip_position.y as usize][flip_position.x as usize].invert_colors();
+    }
+
+    update_log.put.pop();
+    update_log.flip.pop();
+
+
+    turn_color_state.0 = match turn_color_state.0 {
+        TurnColorState::Black => TurnColorState::White,
+        TurnColorState::White => TurnColorState::Black,
+    };
+
 }
